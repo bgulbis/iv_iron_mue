@@ -113,3 +113,15 @@ labs_prior_iron <- labs %>%
     rename(ferritin = `ferritin lvl`) %>%
     mutate(transferrin_sat = iron / tibc * 100)
 
+# blood products
+
+blood <- read_data(dir_raw, "blood", FALSE) %>%
+    as.blood()
+
+prbc <- blood %>%
+    left_join(meds_iron_start, by = "millennium.id") %>%
+    filter(blood.prod == "prbc",
+           blood.datetime >= iron_start - days(2),
+           blood.datetime <= iron_start) %>%
+    count(millennium.id, blood.prod) %>%
+    rename(num_prbc = n)
