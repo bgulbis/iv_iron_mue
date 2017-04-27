@@ -56,6 +56,38 @@ iron_supp_prior <- meds_iron_po %>%
     full_join(demog["millennium.id"], by = "millennium.id") %>%
     dmap_at(c("prior_to_iv", "after_iv"), ~ coalesce(.x, FALSE))
 
+# safety meds ------------------------------------------
+
+meds_steroid <- med_lookup("glucocorticoids") %>%
+    select(med.name) %>%
+    as_vector()
+
+meds_antihist <- bind_rows(med_lookup("H2 antagonists")) %>%
+    select(med.name) %>%
+    as_vector()
+
+meds_antihist <- c("diphenydramine", "hydroxyzine", meds_antihist)
+
+safety_meds <- c("epinephrine", meds_steroid, meds_antihist)
+
+meds_rescue <- meds %>%
+    filter(med %in% safety_meds,
+           is.na(event.tag)) %>%
+    arrange(millennium.id, med, med.datetime) %>%
+    distinct(millennium.id, med, .keep_all = TRUE) %>%
+    select(millennium.id, rescue.datetime = med.datetime, med, med.dose, route, med.location)
+
+meds_rash <- meds_rescue %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
+    filter(med %in% meds_antihist,
+           rescue.datetime >= med.datetime,
+           rescue.datetime <= med.datetime + hours(24))
+
+med_anaphylax <- meds_rescue %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
+    filter(rescue.datetime >= med.datetime,
+           rescue.datetime <= med.datetime + hours(6))
+
 # weight -----------------------------------------------
 
 measures <- read_data(dir_raw, "measures", FALSE) %>%
