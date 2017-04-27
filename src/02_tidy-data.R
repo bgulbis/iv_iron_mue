@@ -88,6 +88,35 @@ med_anaphylax <- meds_rescue %>%
     filter(rescue.datetime >= med.datetime,
            rescue.datetime <= med.datetime + hours(6))
 
+# vitals -----------------------------------------------
+
+vitals <- read_data(dir_raw, "vitals", FALSE) %>%
+    as.vitals()
+
+sbp_after <- vitals %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
+    filter(str_detect(vital, "systolic"),
+           vital.datetime >= med.datetime,
+           vital.datetime <= med.datetime + hours(6),
+           vital.result > 20) %>%
+    group_by(millennium.id, med.datetime) %>%
+    summarize_at("vital.result", funs(sbp_after = min))
+
+sbp_before <- vitals %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
+    filter(str_detect(vital, "systolic"),
+           vital.datetime >= med.datetime - hours(12),
+           vital.datetime <= med.datetime,
+           vital.result > 20) %>%
+    group_by(millennium.id, med.datetime) %>%
+    summarize_at("vital.result", funs(sbp_prior = min))
+
+sbp <- sbp_before %>%
+    inner_join(sbp_after, by = c("millennium.id", "med.datetime")) %>%
+    rowwise() %>%
+    mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 90)
+
+
 # weight -----------------------------------------------
 
 measures <- read_data(dir_raw, "measures", FALSE) %>%
