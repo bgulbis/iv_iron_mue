@@ -12,6 +12,10 @@ dir_raw <- "data/raw"
 demog <- read_data(dir_raw, "demographics", FALSE) %>%
     as.demographics()
 
+patients <- read_data(dir_raw, "patients_iv-iron", FALSE) %>%
+    as.patients() %>%
+    semi_join(demog, by = "millennium.id")
+
 # iv iron dosing ---------------------------------------
 
 meds <- read_data(dir_raw, "meds-inpt", FALSE) %>%
@@ -98,7 +102,7 @@ sbp_after <- vitals %>%
     filter(str_detect(vital, "systolic"),
            vital.datetime >= med.datetime,
            vital.datetime <= med.datetime + hours(6),
-           vital.result > 20) %>%
+           vital.result > 30) %>%
     group_by(millennium.id, med.datetime) %>%
     summarize_at("vital.result", funs(sbp_after = min))
 
@@ -107,15 +111,16 @@ sbp_before <- vitals %>%
     filter(str_detect(vital, "systolic"),
            vital.datetime >= med.datetime - hours(12),
            vital.datetime <= med.datetime,
-           vital.result > 20) %>%
+           vital.result > 30) %>%
     group_by(millennium.id, med.datetime) %>%
     summarize_at("vital.result", funs(sbp_prior = min))
 
 sbp <- sbp_before %>%
     inner_join(sbp_after, by = c("millennium.id", "med.datetime")) %>%
     rowwise() %>%
-    mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 90)
+    mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 100)
 
+# check that patient not on pressor
 
 # weight -----------------------------------------------
 
@@ -174,7 +179,7 @@ labs_prior_iron <- labs %>%
     rename(ferritin = `ferritin lvl`) %>%
     mutate(transferrin_sat = iron / tibc * 100)
 
-# blood products
+# blood products ---------------------------------------
 
 blood <- read_data(dir_raw, "blood", FALSE) %>%
     as.blood()
@@ -186,3 +191,14 @@ prbc <- blood %>%
            blood.datetime <= iron_start) %>%
     count(millennium.id, blood.prod) %>%
     rename(num_prbc = n)
+
+# vent times -------------------------------------------
+
+vent <- read_data(dir_raw, "vent", FALSE) %>%
+    as.vent_times() %>%
+    tidy_data(dc = patients)
+
+new_intub <- vent %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
+    filter(start.datetime >= med.datetime,
+           start.datetime <= med.datetime + hours(6))
