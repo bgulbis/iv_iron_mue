@@ -30,3 +30,8 @@ mbo_id <- concat_encounters(patients$millennium.id)
 #   * Medications - Inpatient - All
 #   * Vent - Times
 #   * Vitals - BP
+
+# run EDW query:
+#   * Identifiers
+#       - Millennium Encounter ID: output from mbo_id
+#       - All others: 1
