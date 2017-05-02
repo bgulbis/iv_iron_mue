@@ -222,3 +222,8 @@ new_intub <- vent %>%
     left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
     filter(start.datetime >= med.datetime,
            start.datetime <= med.datetime + hours(6))
+
+# data sets ------------------------------------------
+
+patient_id <- read_data(dir_raw, "identifiers") %>%
+    as.id()
