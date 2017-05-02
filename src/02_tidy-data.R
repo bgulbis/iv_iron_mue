@@ -92,6 +92,26 @@ med_anaphylax <- meds_rescue %>%
     filter(rescue.datetime >= med.datetime,
            rescue.datetime <= med.datetime + hours(6))
 
+# pressors ---------------------------------------------
+
+pressors <- tibble(name = c("epinephrine",
+                            "norepinpehrine",
+                            "dopamine",
+                            "phenylephrine",
+                            "vasopressin"),
+                   type = "med",
+                   group = "cont")
+
+meds_pressors <- meds %>%
+    tidy_data(ref = pressors) %>%
+    calc_runtime() %>%
+    summarize_data()
+
+sbp_pressors <- meds_pressors %>%
+    left_join(meds_iron[c("millennium.id", "med.datetime", "event.id")], by = "millennium.id") %>%
+    filter(med.datetime > start.datetime,
+           med.datetime < stop.datetime)
+
 # vitals -----------------------------------------------
 
 vitals <- read_data(dir_raw, "vitals", FALSE) %>%
@@ -115,12 +135,12 @@ sbp_before <- vitals %>%
     group_by(millennium.id, med.datetime) %>%
     summarize_at("vital.result", funs(sbp_prior = min))
 
+# remove any patients that are already on a pressor
 sbp <- sbp_before %>%
     inner_join(sbp_after, by = c("millennium.id", "med.datetime")) %>%
+    anti_join(sbp_pressors, by = c("millennium.id", "med.datetime")) %>%
     rowwise() %>%
     mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 100)
-
-# check that patient not on pressor
 
 # weight -----------------------------------------------
 
