@@ -254,7 +254,7 @@ exp_manual_list <- patient_id %>%
     left_join(meds_iron_start, by = "millennium.id") %>%
     select(fin, iron_start, iron_stop)
 
-write_csv(exp_manual_list, "data/external/patient_list.csv")
+write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
 
 # create data sets for analysis
 data_patients <- demog %>%
