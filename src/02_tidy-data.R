@@ -40,6 +40,14 @@ meds_iron_start <- meds_iron %>%
 meds_iron_doses <- meds_iron %>%
     count(millennium.id, med)
 
+data_iron_iv <- meds_iron %>%
+    group_by(millennium.id, med) %>%
+    summarize_at("med.dose", sum) %>%
+    left_join(meds_iron_doses, by = c("millennium.id", "med")) %>%
+    mutate(iv_mg_dose = med.dose / n) %>%
+    rename(total_iv_dose = med.dose,
+           num_doses = n)
+
 # po iron ----------------------------------------------
 
 iron_po <- med_lookup("iron products") %>%
@@ -51,14 +59,14 @@ meds_iron_po <- meds %>%
     filter(med %in% iron_po) %>%
     arrange(millennium.id, med.datetime) %>%
     left_join(meds_iron_start, by = "millennium.id") %>%
-    mutate(prior_to_iv = med.datetime <= iron_start,
-           after_iv = med.datetime > iron_stop)
+    mutate(po_prior_to_iv = med.datetime <= iron_start,
+           po_after_iv = med.datetime > iron_stop)
 
-iron_supp_prior <- meds_iron_po %>%
+iron_supp <- meds_iron_po %>%
     group_by(millennium.id) %>%
-    summarize_at(c("prior_to_iv", "after_iv"), funs(sum(.) >= 1)) %>%
+    summarize_at(c("po_prior_to_iv", "po_after_iv"), funs(sum(.) >= 1)) %>%
     full_join(demog["millennium.id"], by = "millennium.id") %>%
-    dmap_at(c("prior_to_iv", "after_iv"), ~ coalesce(.x, FALSE))
+    dmap_at(c("po_prior_to_iv", "po_after_iv"), ~ coalesce(.x, FALSE))
 
 # safety meds ------------------------------------------
 
@@ -85,12 +93,17 @@ meds_rash <- meds_rescue %>%
     left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
     filter(med %in% meds_antihist,
            rescue.datetime >= med.datetime,
-           rescue.datetime <= med.datetime + hours(24))
+           rescue.datetime <= med.datetime + hours(24)) %>%
+    mutate(med_rash_time = difftime(rescue.datetime, med.datetime, units = "hours")) %>%
+    select(millennium.id, med_rash = med, med_rash_dose = med.dose, med_rash_time)
 
-med_anaphylax <- meds_rescue %>%
+meds_anaphylax <- meds_rescue %>%
     left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
     filter(rescue.datetime >= med.datetime,
-           rescue.datetime <= med.datetime + hours(6))
+           rescue.datetime <= med.datetime + hours(6)) %>%
+    mutate(med_anphlx_time = difftime(rescue.datetime, med.datetime, units = "hours")) %>%
+    select(millennium.id, med_anphlx = med, med_anphlx_dose = med.dose, med_anphlx_time)
+
 
 # pressors ---------------------------------------------
 
@@ -136,11 +149,13 @@ sbp_before <- vitals %>%
     summarize_at("vital.result", funs(sbp_prior = min))
 
 # remove any patients that are already on a pressor
-sbp <- sbp_before %>%
+sbp_drop <- sbp_before %>%
     inner_join(sbp_after, by = c("millennium.id", "med.datetime")) %>%
     anti_join(sbp_pressors, by = c("millennium.id", "med.datetime")) %>%
     rowwise() %>%
-    mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 100)
+    mutate(sbp_drop = sbp_after < 90 & sbp_prior >= 100) %>%
+    filter(sbp_drop) %>%
+    select(-med.datetime)
 
 # weight -----------------------------------------------
 
@@ -154,7 +169,8 @@ weight <- measures %>%
            measure.units == "kg",
            measure.datetime <= iron_start) %>%
     arrange(millennium.id, desc(measure.datetime)) %>%
-    distinct(millennium.id, .keep_all = TRUE)
+    distinct(millennium.id, .keep_all = TRUE) %>%
+    select(millennium.id, weight = measure.result)
 
 # labs -------------------------------------------------
 
@@ -173,9 +189,12 @@ attr(labs_hgb_prior, "data") <- attr(labs, "data")
 labs_hgb_drop <- labs_hgb_prior %>%
     lab_change("hgb", -2, max) %>%
     mutate(hgb_drop = change <= -2) %>%
-    distinct(millennium.id, hgb_drop) %>%
+    distinct(millennium.id, hgb_drop, change) %>%
+    rename(hgb_change = change) %>%
     full_join(demog["millennium.id"], by = "millennium.id") %>%
-    dmap_at("hgb_drop", ~ coalesce(.x, FALSE))
+    dmap_at("hgb_drop", ~ coalesce(.x, FALSE)) %>%
+    group_by(millennium.id, hgb_drop) %>%
+    summarize_at("hgb_change", min)
 
 labs_reported <- c("hgb", "ferritin lvl", "iron", "tibc", "uibc", "transferrin")
 
@@ -184,9 +203,9 @@ labs_admit <- labs %>%
     arrange(millennium.id, lab.datetime) %>%
     group_by(millennium.id, lab) %>%
     summarize_at("lab.result", first) %>%
-    spread(lab, lab.result) %>%
-    rename(ferritin = `ferritin lvl`) %>%
-    mutate(transferrin_sat = iron / tibc * 100)
+    spread(lab, lab.result, sep = "_admit_") %>%
+    rename(lab_admit_ferritin = `lab_admit_ferritin lvl`) %>%
+    mutate(lab_admit_transferrin_sat = lab_admit_iron / lab_admit_tibc * 100)
 
 labs_prior_iron <- labs %>%
     left_join(meds_iron_start, by = "millennium.id") %>%
@@ -195,9 +214,9 @@ labs_prior_iron <- labs %>%
     arrange(millennium.id, lab.datetime) %>%
     group_by(millennium.id, lab) %>%
     summarize_at("lab.result", last) %>%
-    spread(lab, lab.result) %>%
-    rename(ferritin = `ferritin lvl`) %>%
-    mutate(transferrin_sat = iron / tibc * 100)
+    spread(lab, lab.result, sep = "_baseline_") %>%
+    rename(lab_baseline_ferritin = `lab_baseline_ferritin lvl`) %>%
+    mutate(transferrin_sat = lab_baseline_iron / lab_baseline_tibc * 100)
 
 # blood products ---------------------------------------
 
@@ -210,7 +229,7 @@ prbc <- blood %>%
            blood.datetime >= iron_start - days(2),
            blood.datetime <= iron_start) %>%
     count(millennium.id, blood.prod) %>%
-    rename(num_prbc = n)
+    select(millennium.id, num_prbc = n)
 
 # vent times -------------------------------------------
 
@@ -221,9 +240,49 @@ vent <- read_data(dir_raw, "vent", FALSE) %>%
 new_intub <- vent %>%
     left_join(meds_iron[c("millennium.id", "med.datetime")], by = "millennium.id") %>%
     filter(start.datetime >= med.datetime,
-           start.datetime <= med.datetime + hours(6))
+           start.datetime <= med.datetime + hours(6)) %>%
+    mutate(vent_time = difftime(start.datetime, med.datetime, units = "hours")) %>%
+    select(millennium.id, vent_time)
 
 # data sets ------------------------------------------
 
 patient_id <- read_data(dir_raw, "identifiers") %>%
     as.id()
+
+# export list for manual collection of indications
+exp_manual_list <- patient_id %>%
+    left_join(meds_iron_start, by = "millennium.id") %>%
+    select(fin, iron_start, iron_stop)
+
+write_csv(exp_manual_list, "data/external/patient_list.csv")
+
+# create data sets for analysis
+data_patients <- demog %>%
+    select(-visit.type, -facility) %>%
+    left_join(weight, by = "millennium.id")
+
+data_labs <- demog %>%
+    select(millennium.id) %>%
+    left_join(labs_admit, by = "millennium.id") %>%
+    left_join(labs_prior_iron, by = "millennium.id") %>%
+    left_join(labs_hgb_drop, by = "millennium.id")
+
+data_iron <- demog %>%
+    select(millennium.id) %>%
+    left_join(prbc, by = "millennium.id") %>%
+    left_join(iron_supp, by = "millennium.id")
+
+data_safety <- demog %>%
+    select(millennium.id) %>%
+    left_join(meds_rash, by = "millennium.id") %>%
+    left_join(meds_anaphylax, by = "millennium.id") %>%
+    left_join(sbp_drop, by = "millennium.id") %>%
+    left_join(new_intub, by = "millennium.id") %>%
+    dmap_at("sbp_drop", ~ coalesce(.x, FALSE)) %>%
+    mutate(rash_med = !is.na(med_rash),
+           rescue_med = !is.na(med_anphlx),
+           intubated = !is.na(vent_time),
+           anaphylaxis = rescue_med | sbp_drop | intubated) %>%
+    select(millennium.id, rash_med, rescue_med, sbp_drop, intubated, anaphylaxis)
+
+dirr::save_rds("data/tidy", "data_")
