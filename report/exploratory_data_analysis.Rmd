@@ -1,0 +1,34 @@
+---
+title: "Intravenous Iron MUE"
+subtitle: "Exploratory Data Analysis"
+author: "Brian Gulbis"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  html_document:
+    code_folding: hide
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_data, message=FALSE}
+library(tidyverse)
+library(forcats)
+library(plotly)
+library(themebg)
+
+x <- dirr::get_rds("../data/tidy")
+```
+
+```{r, fig.cap="Indications for IV iron use"}
+p <- data_indications %>%
+    dmap_at("indication", fct_infreq) %>%
+    ggplot(aes(x = indication)) +
+    geom_bar() +
+    theme_bg(xticks = FALSE)
+
+ggplotly(dynamicTicks = TRUE)
+```
+
