@@ -1,4 +1,5 @@
 library(tidyverse)
+library(purrrlyr)
 library(lubridate)
 library(stringr)
 library(edwr)
@@ -216,7 +217,7 @@ labs_prior_iron <- labs %>%
     summarize_at("lab.result", last) %>%
     spread(lab, lab.result, sep = "_baseline_") %>%
     rename(lab_baseline_ferritin = `lab_baseline_ferritin lvl`) %>%
-    mutate(transferrin_sat = lab_baseline_iron / lab_baseline_tibc * 100)
+    mutate(lab_baseline_transferrin_sat = lab_baseline_iron / lab_baseline_tibc * 100)
 
 # blood products ---------------------------------------
 
