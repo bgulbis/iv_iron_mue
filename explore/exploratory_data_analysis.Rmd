@@ -360,7 +360,7 @@ data_iron %>%
     knitr::kable(digits = 2, caption = "Patients who receive a transfusion of PRBC")
 ```
 
-```{r}
+```{r, fig.cap="Number of patients receiving a transfusion by iron indication"}
 p <- data_iron %>%
     mutate(transfused = !is.na(num_prbc)) %>%
     filter(transfused) %>%
@@ -378,23 +378,99 @@ ggplotly(p, dynamicTicks = TRUE)
 
 Calculate % of patients in each group who received prbc
 ```{r}
-# p <- data_iron %>%
-#     mutate(transfused = !is.na(num_prbc)) %>%
-#     filter(transfused) %>%
-#     inner_join(data_indications, by = "millennium.id") %>%
-#     dmap_at("indication", fct_infreq) %>%
-#     group_by(indication) %>%
-#     summarize_at
-#     ggplot(aes(x = indication)) +
-#     geom_bar() +
-#     scale_x_discrete("Indication", labels = c("Other", "Bleed", "None Documented", "ESRD", "Transplant", "Jehovah's Witness")) +
-#     ylab("Number of Patients") +
-#     theme_bg(xticks = FALSE)
-
-# ggplotly(p, dynamicTicks = TRUE)
-
+data_indications %>%
+    left_join(data_iron, by = "millennium.id") %>%
+    mutate(transfused = !is.na(num_prbc)) %>%
+    dmap_at("indication", str_replace_all, pattern = x) %>%
+    group_by(indication) %>%
+    summarize_at("transfused", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
+    mutate(`%` = n / total * 100) %>%
+    arrange(desc(`%`)) %>%
+    select(indication, n, `%`, `n/a`) %>%
+    knitr::kable(digits = 2, caption = "Transfusions by iron indication")
 ```
 
+# Iron Supplementation
+
+```{r}
+p <- data_iron_iv %>%
+    semi_join(data_patients, by = "millennium.id") %>%
+    ungroup() %>%
+    select(med) %>%
+    dmap_at("med", fct_infreq) %>%
+    ggplot(aes(x = med)) +
+    geom_bar() +
+    xlab("Iron Product") +
+    ylab("Number of Patients") +
+    theme_bg(xticks = FALSE)
+
+ggplotly(p, dynamicTicks = TRUE)
+```
+
+```{r}
+data_iron_iv %>%
+    ungroup() %>%
+    count(med) %>%
+    mutate(`%` = n / sum(n) * 100) %>%
+    arrange(desc(`%`)) %>%
+    knitr::kable(digits = 2, caption = "IV Iron Products")
+```
+
+## Iron Sucrose Dosing
+
+```{r}
+data_iron_iv %>%
+    ungroup() %>%
+    semi_join(data_patients, by = "millennium.id") %>%
+    filter(med == "iron sucrose") %>%
+    select_if(is.numeric) %>%
+    gather(variable, value) %>%
+    dmap_at("variable", str_replace_all, pattern = c("total_iv_dose" = "Cumulative Dose (mg)",
+                                                     "num_doses" = "Number of Doses",
+                                                     "iv_mg_dose" = "Individual Dose (mg)")) %>%
+    dmap_at("variable", fct_inorder) %>%
+    group_by(variable) %>%
+    summarize_at("value", funs(n = sum(!is.na(.)), min, max, mean, sd, median, `25th` = quantile(., probs = 0.25), `75th` = quantile(., probs = 0.75), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
+    knitr::kable(digits = 2, caption = "Iron sucrose dosing")
+```
+
+```{r, fig.cap="Distribution of cumulative iron sucrose dose"}
+p <- data_iron_iv %>%
+    filter(med == "iron sucrose") %>%
+    ggplot(aes(x = total_iv_dose)) +
+    geom_histogram(binwidth = 100) +
+    xlab("Cumulative Dose (mg)") +
+    ylab("Number of Patients") +
+    theme_bg()
+
+ggplotly(p, dynamicTicks = TRUE)
+```
+
+```{r, fig.cap="Distribution of individual dose of iron sucrose"}
+p <- data_iron_iv %>%
+    filter(med == "iron sucrose") %>%
+    ggplot(aes(x = iv_mg_dose)) +
+    geom_histogram(binwidth = 100) +
+    xlab("Individual dose (mg)") +
+    ylab("Number of Patients") +
+    theme_bg()
+
+ggplotly(p, dynamicTicks = TRUE)
+```
+
+```{r, fig.cap="Distribution of number of doses of iron sucrose"}
+p <- data_iron_iv %>%
+    filter(med == "iron sucrose") %>%
+    ggplot(aes(x = num_doses)) +
+    geom_histogram(binwidth = 1) +
+    xlab("Number of Doses") +
+    ylab("Number of Patients") +
+    theme_bg()
+
+ggplotly(p, dynamicTicks = TRUE)
+```
+
+## Oral Supplementations
 ```{r}
 data_iron %>%
     select(po_prior_to_iv, po_after_iv) %>%
@@ -408,73 +484,24 @@ data_iron %>%
     knitr::kable(digits = 2, caption = "Oral Iron Supplementation")
 ```
 
+# Safety
+
 ```{r}
 data_safety %>%
     select(-millennium.id) %>%
     gather(variable, value) %>%
+    dmap_at("variable", str_replace_all, pattern = c("anaphylaxis" = "Possible anaphylaxis",
+                                                     "sbp_drop" = "SBP drop within 6 hours",
+                                                     "rash_med" = "Antihistamine within 24 hours",
+                                                     "rescue_med" = "Antihistamine, vasopressor, or steroid within 6 hours",
+                                                     "intubated" = "Intubated within 6 hours")) %>%
     dmap_at("variable", fct_inorder) %>%
+    # dmap_at("variable", ~fct_relevel(.x, "Antihistamine within 24 hours")) %>%
     group_by(variable) %>%
     summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    arrange(desc(n)) %>%
+    # arrange(desc(n)) %>%
     mutate(`%` = n / total * 100) %>%
     select(variable, n, `%`, `n/a`) %>%
     knitr::kable(digits = 2, caption = "Rash and Anaphylaxis")
 ```
 
-```{r}
-p <- data_iron_iv %>%
-    semi_join(data_patients, by = "millennium.id") %>%
-    ungroup() %>%
-    select(med) %>%
-    dmap_at("med", fct_infreq) %>%
-    ggplot(aes(x = med)) +
-    geom_bar() +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-
-```
-
-```{r}
-data_iron_iv %>%
-    ungroup() %>%
-    semi_join(data_patients, by = "millennium.id") %>%
-    filter(med == "iron sucrose") %>%
-    select_if(is.numeric) %>%
-    gather(variable, value) %>%
-    dmap_at("variable", fct_inorder) %>%
-    group_by(variable) %>%
-    summarize_at("value", funs(n = sum(!is.na(.)), min, max, mean, sd, median, `25th` = quantile(., probs = 0.25), `75th` = quantile(., probs = 0.75), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    knitr::kable(digits = 2, caption = "Demographics (Continuous)")
-```
-
-```{r}
-p <- data_iron_iv %>%
-    filter(med == "iron sucrose") %>%
-    ggplot(aes(x = total_iv_dose)) +
-    geom_histogram(binwidth = 100) +
-    theme_bg()
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-p <- data_iron_iv %>%
-    filter(med == "iron sucrose") %>%
-    ggplot(aes(x = iv_mg_dose)) +
-    geom_histogram(binwidth = 100) +
-    theme_bg()
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-p <- data_iron_iv %>%
-    filter(med == "iron sucrose") %>%
-    ggplot(aes(x = num_doses)) +
-    geom_histogram(binwidth = 1) +
-    theme_bg()
-
-ggplotly(p, dynamicTicks = TRUE)
-```
