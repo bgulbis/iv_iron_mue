@@ -255,9 +255,9 @@ new_intub <- vent %>%
 # write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
 
 # create data sets for analysis
-move_tidy_data <- function(x) {
+move_tidy_data <- function(x, nm) {
     s3saveRDS(x,
-              object = paste0("data/tidy", deparse(substitute(x)), ".Rds"),
+              object = paste0("data/tidy/", nm, ".Rds"),
               bucket = bucket,
               headers = list("x-amz-server-side-encryption" = "AES256"))
 }
@@ -265,20 +265,24 @@ move_tidy_data <- function(x) {
 demog %>%
     select(-visit.type, -facility) %>%
     left_join(weight, by = "millennium.id") %>%
-    move_tidy_data()
+    move_tidy_data("data_patients")
 
-data_labs <- demog %>%
+demog %>%
     select(millennium.id) %>%
     left_join(labs_admit, by = "millennium.id") %>%
     left_join(labs_prior_iron, by = "millennium.id") %>%
-    left_join(labs_hgb_drop, by = "millennium.id")
+    left_join(labs_hgb_drop, by = "millennium.id") %>%
+    move_tidy_data("data_labs")
 
-data_iron <- demog %>%
+demog %>%
     select(millennium.id) %>%
     left_join(prbc, by = "millennium.id") %>%
-    left_join(iron_supp, by = "millennium.id")
+    left_join(iron_supp, by = "millennium.id") %>%
+    move_tidy_data("data_iron")
 
-data_safety <- demog %>%
+move_tidy_data(data_iron_iv, "data_iron_iv")
+
+demog %>%
     select(millennium.id) %>%
     left_join(meds_rash, by = "millennium.id") %>%
     left_join(meds_anaphylax, by = "millennium.id") %>%
@@ -289,6 +293,5 @@ data_safety <- demog %>%
            rescue_med = !is.na(med_anphlx),
            intubated = !is.na(vent_time),
            anaphylaxis = rescue_med | sbp_drop | intubated) %>%
-    select(millennium.id, rash_med, rescue_med, sbp_drop, intubated, anaphylaxis)
-
-dirr::save_rds("data/tidy", "data_")
+    select(millennium.id, rash_med, rescue_med, sbp_drop, intubated, anaphylaxis) %>%
+    move_tidy_data("data_safety")
