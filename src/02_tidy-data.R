@@ -3,23 +3,22 @@ library(purrrlyr)
 library(lubridate)
 library(stringr)
 library(edwr)
+library(aws.s3)
 
-dirr::gzip_files()
-
-dir_raw <- "data/raw"
+bucket <- "iv-iron-mue"
 
 # demographics -----------------------------------------
 
-demog <- read_data(dir_raw, "demographics", FALSE) %>%
+demog <- s3readRDS(object = "data/raw/demographics.Rds", bucket = bucket) %>%
     as.demographics()
 
-patients <- read_data(dir_raw, "patients_iv-iron", FALSE) %>%
+patients <- s3readRDS(object = "data/raw/patients.Rds", bucket = bucket) %>%
     as.patients() %>%
     semi_join(demog, by = "millennium.id")
 
 # iv iron dosing ---------------------------------------
 
-meds <- read_data(dir_raw, "meds-inpt", FALSE) %>%
+meds <- s3readRDS(object = "data/raw/meds.Rds", bucket = bucket) %>%
     as.meds_inpt()
 
 iron_iv <- c("iron sucrose",
@@ -35,8 +34,6 @@ meds_iron <- meds %>%
 meds_iron_start <- meds_iron %>%
     group_by(millennium.id) %>%
     summarize_at("med.datetime", funs(iron_start = first, iron_stop = last))
-    # distinct(millennium.id, .keep_all = TRUE) %>%
-    # select(millennium.id, iron_start = med.datetime, med, med.dose, med.dose.units)
 
 meds_iron_doses <- meds_iron %>%
     count(millennium.id, med)
@@ -128,7 +125,7 @@ sbp_pressors <- meds_pressors %>%
 
 # vitals -----------------------------------------------
 
-vitals <- read_data(dir_raw, "vitals", FALSE) %>%
+vitals <- s3readRDS(object = "data/raw/vitals.Rds", bucket = bucket) %>%
     as.vitals()
 
 sbp_after <- vitals %>%
@@ -160,7 +157,7 @@ sbp_drop <- sbp_before %>%
 
 # weight -----------------------------------------------
 
-measures <- read_data(dir_raw, "measures", FALSE) %>%
+measures <- s3readRDS(object = "data/raw/measures.Rds", bucket = bucket) %>%
     as.measures()
 
 # use the last weight before first dose of iv iron
@@ -175,7 +172,7 @@ weight <- measures %>%
 
 # labs -------------------------------------------------
 
-labs <- read_data(dir_raw, "labs", FALSE) %>%
+labs <- s3readRDS(object = "data/raw/labs.Rds", bucket = bucket) %>%
     as.labs() %>%
     tidy_data()
 
@@ -221,7 +218,7 @@ labs_prior_iron <- labs %>%
 
 # blood products ---------------------------------------
 
-blood <- read_data(dir_raw, "blood", FALSE) %>%
+blood <- s3readRDS(object = "data/raw/blood.Rds", bucket = bucket) %>%
     as.blood()
 
 prbc <- blood %>%
@@ -234,7 +231,7 @@ prbc <- blood %>%
 
 # vent times -------------------------------------------
 
-vent <- read_data(dir_raw, "vent", FALSE) %>%
+vent <- s3readRDS(object = "data/raw/vent.Rds", bucket = bucket) %>%
     as.vent_times() %>%
     tidy_data(dc = patients)
 
@@ -247,20 +244,28 @@ new_intub <- vent %>%
 
 # data sets ------------------------------------------
 
-patient_id <- read_data(dir_raw, "identifiers") %>%
-    as.id()
+# patient_id <- read_data(dir_raw, "identifiers") %>%
+#     as.id()
 
 # export list for manual collection of indications
-exp_manual_list <- patient_id %>%
-    left_join(meds_iron_start, by = "millennium.id") %>%
-    select(fin, iron_start, iron_stop)
-
-write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
+# exp_manual_list <- patient_id %>%
+#     left_join(meds_iron_start, by = "millennium.id") %>%
+#     select(fin, iron_start, iron_stop)
+#
+# write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
 
 # create data sets for analysis
-data_patients <- demog %>%
+move_tidy_data <- function(x) {
+    s3saveRDS(x,
+              object = paste0("data/tidy", deparse(substitute(x)), ".Rds"),
+              bucket = bucket,
+              headers = list("x-amz-server-side-encryption" = "AES256"))
+}
+
+demog %>%
     select(-visit.type, -facility) %>%
-    left_join(weight, by = "millennium.id")
+    left_join(weight, by = "millennium.id") %>%
+    move_tidy_data()
 
 data_labs <- demog %>%
     select(millennium.id) %>%
