@@ -26,6 +26,7 @@ move_data("meds")
 move_data("patients")
 move_data("vent")
 move_data("vitals")
+move_data("identifiers")
 
 # vizient data -----------------------------------------
 put_object(file = "data/external/vizient_totals_peer-hospitals_2016.xlsx",
