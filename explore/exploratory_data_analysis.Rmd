@@ -19,7 +19,6 @@ library(stringr)
 library(forcats)
 library(plotly)
 library(themebg)
-library(aws.s3)
 
 x <- dirr::get_rds_s3("iv-iron-mue", "data/tidy/")
 ```
