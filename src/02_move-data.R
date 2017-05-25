@@ -26,7 +26,11 @@ move_data("meds")
 move_data("patients")
 move_data("vent")
 move_data("vitals")
-move_data("identifiers")
+
+read_data(dir_raw, "identifiers") %>%
+    s3saveRDS(object = "data/raw/identifiers.Rds",
+              bucket = bucket,
+              headers = list("x-amz-server-side-encryption" = "AES256"))
 
 # vizient data -----------------------------------------
 put_object(file = "data/external/vizient_totals_peer-hospitals_2016.xlsx",
