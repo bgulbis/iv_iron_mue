@@ -244,15 +244,19 @@ new_intub <- vent %>%
 
 # data sets ------------------------------------------
 
-# patient_id <- read_data(dir_raw, "identifiers") %>%
-#     as.id()
+patient_id <- s3readRDS(object = "data/raw/identifiers.Rds", bucket = bucket) %>%
+    as.id()
 
 # export list for manual collection of indications
-# exp_manual_list <- patient_id %>%
-#     left_join(meds_iron_start, by = "millennium.id") %>%
-#     select(fin, iron_start, iron_stop)
-#
+exp_manual_list <- patient_id %>%
+    left_join(meds_iron_start, by = "millennium.id") %>%
+    select(fin, iron_start, iron_stop)
+
 # write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
+s3write_using(exp_manual_list,
+              FUN = write_excel_csv,
+              object = "data/external/patient_list.csv",
+              bucket = bucket)
 
 # create data sets for analysis
 move_tidy_data <- function(x, nm) {
