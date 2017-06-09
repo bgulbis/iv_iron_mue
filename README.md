@@ -10,3 +10,4 @@ Results
 =======
 
 1.  [Exploratory Data Analysis](https://bgulbis.github.io/iv_iron_mue/explore/exploratory_data_analysis.html)
+2.  [Analysis for P&T](https://bgulbis.github.io/iv_iron_mue/report/summary_pt-committee.html)
