@@ -4,8 +4,6 @@ library(lubridate)
 library(stringr)
 library(edwr)
 
-dirr::gzip_files()
-
 dir_raw <- "data/raw"
 
 # demographics -----------------------------------------
@@ -35,8 +33,6 @@ meds_iron <- meds %>%
 meds_iron_start <- meds_iron %>%
     group_by(millennium.id) %>%
     summarize_at("med.datetime", funs(iron_start = first, iron_stop = last))
-    # distinct(millennium.id, .keep_all = TRUE) %>%
-    # select(millennium.id, iron_start = med.datetime, med, med.dose, med.dose.units)
 
 meds_iron_doses <- meds_iron %>%
     count(millennium.id, med)
@@ -247,7 +243,7 @@ new_intub <- vent %>%
 
 # data sets ------------------------------------------
 
-patient_id <- read_data(dir_raw, "identifiers") %>%
+patient_id <- read_data(dir_raw, "identifiers", FALSE) %>%
     as.id()
 
 # export list for manual collection of indications
@@ -257,23 +253,27 @@ exp_manual_list <- patient_id %>%
 
 write_excel_csv(exp_manual_list, "data/external/patient_list.csv")
 
-# create data sets for analysis
-data_patients <- demog %>%
+demog %>%
     select(-visit.type, -facility) %>%
-    left_join(weight, by = "millennium.id")
+    left_join(weight, by = "millennium.id") %>%
+    write_rds("data/tidy/data_patients.Rds", "gz")
 
-data_labs <- demog %>%
+demog %>%
     select(millennium.id) %>%
     left_join(labs_admit, by = "millennium.id") %>%
     left_join(labs_prior_iron, by = "millennium.id") %>%
-    left_join(labs_hgb_drop, by = "millennium.id")
+    left_join(labs_hgb_drop, by = "millennium.id") %>%
+    write_rds("data/tidy/data_labs.Rds", "gz")
 
-data_iron <- demog %>%
+demog %>%
     select(millennium.id) %>%
     left_join(prbc, by = "millennium.id") %>%
-    left_join(iron_supp, by = "millennium.id")
+    left_join(iron_supp, by = "millennium.id") %>%
+    write_rds("data/tidy/data_iron.Rds", "gz")
 
-data_safety <- demog %>%
+write_rds(data_iron_iv, "data/tidy/data_iron_iv.Rds", "gz")
+
+demog %>%
     select(millennium.id) %>%
     left_join(meds_rash, by = "millennium.id") %>%
     left_join(meds_anaphylax, by = "millennium.id") %>%
@@ -284,6 +284,5 @@ data_safety <- demog %>%
            rescue_med = !is.na(med_anphlx),
            intubated = !is.na(vent_time),
            anaphylaxis = rescue_med | sbp_drop | intubated) %>%
-    select(millennium.id, rash_med, rescue_med, sbp_drop, intubated, anaphylaxis)
-
-dirr::save_rds("data/tidy", "data_")
+    select(millennium.id, rash_med, rescue_med, sbp_drop, intubated, anaphylaxis) %>%
+    write_rds("data/tidy/data_safety.Rds", "gz")
