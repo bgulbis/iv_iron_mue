@@ -15,85 +15,106 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r load_data, message=FALSE}
 library(tidyverse)
 library(purrrlyr)
+library(readxl)
 library(stringr)
 library(forcats)
 library(plotly)
 library(themebg)
 
 x <- dirr::get_rds("../data/tidy")
+
+vizient_total <- read_excel("../data/external/vizient_totals_peer-hospitals_2016.xlsx", range = "C42:I66")
+vizient_service <- read_excel("../data/external/vizient_service-line_peer-hospitals_2016.xlsx", range = "B43:I637")
+```
+
+# Vizient Comparison
+
+```{r, fig.cap="Comparison of IV iron product utilization among similar Vizient institutions"}
+p <- vizient_total %>%
+    rename(percent_cases = `Pct Clinical Population Numerator Cases`) %>%
+    arrange(desc(percent_cases)) %>%
+    dmap_at("Hospital", fct_inorder) %>%
+    dmap_at("Hospital", fct_rev) %>%
+    mutate(mhtmc = str_detect(Hospital, "HERMANN")) %>%
+    ggplot(aes(x = Hospital, y = percent_cases, fill = mhtmc)) +
+    geom_bar(stat = "identity") +
+    ylab("Percent of Cases") +
+    scale_fill_manual("", values = c("grey50", "black")) +
+    coord_flip() +
+    theme_bg() +
+    theme(legend.position = "none")
+
+ggplotly(p, dynamicTicks = TRUE)
+```
+
+```{r}
+vizient_service %>%
+    rename(service_line = `Vizient Service Line`,
+           percent_cases = `Pct Clinical Population Numerator Cases`) %>%
+    group_by(service_line) %>%
+    top_n(5, percent_cases) %>%
+    mutate(mhtmc = str_detect(Hospital, "HERMANN")) %>%
+    summarize_at("mhtmc", "sum") %>%
+    summarize_at("mhtmc", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
+    mutate(`%` = n / total * 100,
+           variable = "Vizient Service Lines") %>%
+    select(variable, n, `%`, `n/a`) %>%
+    knitr::kable(digits = 2, caption = "Vizient Service Lines with MH-TMC in the Top 5 for IV Iron Utilization")
+```
+
+```{r, fig.cap="Percent of cases receiving IV iron among Vizient service lines with MH-TMC in the top 5 for utilization"}
+vizient_service %>%
+    rename(service_line = `Vizient Service Line`,
+           percent_cases = `Pct Clinical Population Numerator Cases`) %>%
+    group_by(service_line) %>%
+    top_n(5, percent_cases) %>%
+    ungroup() %>%
+    filter(str_detect(Hospital, "HERMANN")) %>%
+    arrange(desc(percent_cases)) %>%
+    dmap_at("service_line", fct_inorder) %>%
+    dmap_at("service_line", fct_rev) %>%
+    ggplot(aes(x = service_line, y = percent_cases)) +
+    geom_bar(stat = "identity") +
+    xlab("Vizient Service Line") +
+    ylab("Percent of Cases") +
+    coord_flip() +
+    theme_bg()
 ```
 
 # Indications
 
 ```{r, fig.cap="Indications for IV iron use"}
-p <- data_indications %>%
-    dmap_at("indication", fct_infreq) %>%
-    ggplot(aes(x = indication)) +
-    geom_bar() +
-    scale_x_discrete("Indication", labels = c("Other", "Bleed", "None Documented", "ESRD", "Transplant", "Jehovah's Witness")) +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
 x <- c("other" = "Other",
-       "bleed" = "Bleed",
        "none" = "None Documented",
        "esrd" = "ESRD",
        "transplant" = "Transplant",
        "jehovah" = "Jehovah's Witness")
 
-data_indications %>%
-    select(millennium.id, indication) %>%
-    dmap_at("indication", str_replace_all, pattern = x) %>%
-    mutate(val = TRUE) %>%
-    spread(indication, val, fill = FALSE) %>%
-    select(-millennium.id) %>%
-    gather(variable, value) %>%
-    dmap_at("variable", fct_inorder) %>%
-    group_by(variable) %>%
-    summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Indications for IV iron use")
-```
-
-```{r, fig.cap="Number of patients with an indication of Other that is anemia-related"}
 p <- data_indications %>%
-    filter(indication == "other") %>%
     mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
     dmap_at("anemia", ~coalesce(.x, FALSE)) %>%
-    dmap_at("anemia", ~if_else(.x, "Anemia", "Non-Anemia")) %>%
-    ggplot(aes(x = anemia)) +
-    geom_bar(width = 0.5) + 
-    xlab("") +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
+    mutate(new_indication = if_else(indication == "bleed" | (indication == "other" & anemia), "Bleed/Anemia", indication)) %>%
+    select(millennium.id, new_indication) %>%
+    dmap_at("new_indication", str_replace_all, pattern = x) %>%
+    mutate(val = TRUE) %>%
+    spread(new_indication, val, fill = FALSE) %>%
+    select(-millennium.id) %>%
+    gather(new_indication, value) %>%
+    group_by(new_indication) %>%
+    summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
+    arrange(desc(n)) %>%
+    mutate(percent = n / total * 100) %>%
+    dmap_at("new_indication", fct_inorder) %>%
+    mutate(no_indication = new_indication == "None Documented") %>%
+    ggplot(aes(x = new_indication, y = percent, fill = no_indication)) +
+    geom_bar(stat = "identity") +
+    scale_x_discrete("Indication") +
+    ylab("Number of Patients (%)") +
+    scale_fill_manual("", values = c("grey50", "black")) +
+    theme_bg(xticks = FALSE) +
+    theme(legend.position = "none")
 
 ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-data_indications %>%
-    filter(indication == "other") %>%
-    mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
-    dmap_at("anemia", ~coalesce(.x, FALSE)) %>%
-    dmap_at("anemia", ~if_else(.x, "Anemia", "Non-Anemia")) %>%
-    select(millennium.id, anemia) %>%
-    mutate(val = TRUE) %>%
-    spread(anemia, val, fill = FALSE) %>%
-    select(-millennium.id) %>%
-    gather(variable, value) %>%
-    dmap_at("variable", fct_inorder) %>%
-    group_by(variable) %>%
-    summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Patients with an indication of Other that is anemia-related")
 ```
 
 # Demographics
@@ -143,8 +164,19 @@ data_patients %>%
 ```
 
 ```{r}
+x <- c("Home or Self Care" = "Home",
+       "Home Care with Home Health" = "Home",
+       "Skilled Nursing Facility" = "Transferred",
+       "DC/DISC TO REHAB" = "Transferred",
+       "Deceased" = "Death/Hospice",
+       "Left Against Medical Advise" = "Home",
+       "Long Term Care" = "Transferred",
+       "Acute Care" = "Transferred",
+       "Hospice-Home" = "Death/Hospice")
+
 data_patients %>%
     select(millennium.id, disposition) %>%
+    dmap_at("disposition", str_replace_all, pattern = x) %>%
     mutate(val = TRUE) %>%
     spread(disposition, val, fill = FALSE) %>%
     select(-millennium.id) %>%
@@ -160,22 +192,8 @@ data_patients %>%
 
 # Labs
 
-```{r, fig.cap="Number of patients with an iron study any time prior to IV iron administration"}
+```{r, fig.cap="Percent of patients with an iron study any time prior to IV iron administration"}
 p <- data_labs %>%
-    select(millennium.id, lab_baseline_iron) %>%
-    dmap_at("lab_baseline_iron", ~!is.na(.x)) %>%
-    dmap_at("lab_baseline_iron", ~if_else(.x, "Iron Study", "No Iron Study")) %>%
-    ggplot(aes(x = lab_baseline_iron)) +
-    geom_bar() +
-    xlab("") +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-data_labs %>%
     select(millennium.id, lab_baseline_iron) %>%
     dmap_at("lab_baseline_iron", ~!is.na(.x)) %>%
     dmap_at("lab_baseline_iron", ~if_else(.x, "Iron Study", "No Iron Study")) %>%
@@ -187,53 +205,20 @@ data_labs %>%
     group_by(variable) %>%
     summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
     arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Iron studies prior to IV iron administration")
-```
-
-
-
-```{r}
-data_labs %>%
-    select_if(is.numeric) %>%
-    rename(lab_admit_transfsat = lab_admit_transferrin_sat, 
-           lab_baseline_transfsat = lab_baseline_transferrin_sat) %>%
-    select(-hgb_change) %>%
-    gather(variable, value) %>%
-    separate(variable, c("lab", "timing", "lab_test"), "_") %>%
-    select(-lab) %>%
-    dmap_at("timing", str_replace_all, pattern = c("admit" = "First during admission",
-                                                   "baseline" = "Most recent prior to iron")) %>%
-    dmap_at("lab_test", str_replace_all, pattern = c("ferritin" = "Ferritin",
-                                                     "hgb" = "Hemoglobin",
-                                                     "iron" = "Iron level",
-                                                     "tibc" = "TIBC",
-                                                     "transferrin" = "Transferrin",
-                                                     "uibc" = "UIBC",
-                                                     "transfsat" = "Transferrin Saturation")) %>%
-    dmap_at("lab_test", fct_inorder) %>%
-    group_by(timing, lab_test) %>%
-    summarize_at("value", funs(n = sum(!is.na(.)), min, max, mean, sd, median, `25th` = quantile(., probs = 0.25), `75th` = quantile(., probs = 0.75), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    knitr::kable(digits = 2, caption = "Admit and Baseline Labs")
-```
-
-## Hemoglobin drop
-
-```{r, fig.cap="Count of patients with a hemoglobin drop"}
-p <- data_labs %>%
-    dmap_at("hgb_drop", ~if_else(.x, "Hgb drop", "No drop")) %>%
-    ggplot(aes(x = hgb_drop)) +
-    geom_bar() +
+    mutate(percent = n / total * 100) %>%
+    ggplot(aes(x = variable, y = percent)) +
+    geom_bar(stat = "identity") +
     xlab("") +
-    ylab("Number of Patients") +
+    ylab("Number of Patients (%)") +
     theme_bg(xticks = FALSE)
 
 ggplotly(p, dynamicTicks = TRUE)
 ```
 
-```{r}
-data_labs %>%
+## Hemoglobin drop
+
+```{r, fig.cap="Percent of patients with a hemoglobin drop"}
+p <- data_labs %>%
     dmap_at("hgb_drop", ~if_else(.x, "Hgb drop", "No drop")) %>%
     select(millennium.id, hgb_drop) %>%
     mutate(val = TRUE) %>%
@@ -244,105 +229,20 @@ data_labs %>%
     group_by(variable) %>%
     summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
     arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Patients with decrease in hemoglobin of > 2 g/dL within a 48-hour period")
-```
-
-```{r, fig.cap="Count of patients with a hemoglobin drop among those with an anemia-related indication"}
-p <- data_indications %>%
-    filter(indication == "other") %>%
-    mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
-    filter(anemia) %>%
-    inner_join(data_labs, by = "millennium.id") %>%
-    dmap_at("hgb_drop", ~if_else(.x, "Hgb drop", "No drop")) %>%
-    ggplot(aes(x = hgb_drop)) +
-    geom_bar() +
+    mutate(percent = n / total * 100) %>%
+    ggplot(aes(x = variable, y = percent)) +
+    geom_bar(stat = "identity") +
     xlab("") +
-    ylab("Number of Patients") +
+    ylab("Number of Patients (%)") +
     theme_bg(xticks = FALSE)
 
 ggplotly(p, dynamicTicks = TRUE)
-```
-
-## Subgroup of patients without iron studies
-
-```{r, fig.cap="Indications among patients without iron studies"}
-p <- data_labs %>%
-    filter(is.na(lab_baseline_iron)) %>%
-    select(millennium.id) %>%
-    inner_join(data_indications, by = "millennium.id") %>%
-    dmap_at("indication", fct_infreq) %>%
-    ggplot(aes(x = indication)) +
-    geom_bar() +
-    scale_x_discrete("Indication", labels = c("Other", "Bleed", "None Documented", "ESRD", "Transplant", "Jehovah's Witness")) +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-
-```
-
-
-```{r, fig.cap="Number of Other indications which are anemia-related among patients without iron studies"}
-p <- data_labs %>%
-    filter(is.na(lab_baseline_iron)) %>%
-    select(millennium.id) %>%
-    inner_join(data_indications, by = "millennium.id") %>%
-    filter(indication == "other") %>%
-    mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
-    dmap_at("anemia", ~coalesce(.x, FALSE)) %>%
-    dmap_at("anemia", ~if_else(.x, "Anemia", "Non-Anemia")) %>%
-    ggplot(aes(x = anemia)) +
-    geom_bar(width = 0.5) + 
-    xlab("") +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-data_labs %>%
-    filter(is.na(lab_baseline_iron)) %>%
-    select(millennium.id) %>%
-    inner_join(data_indications, by = "millennium.id") %>%
-    filter(indication == "other") %>%
-    mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
-    dmap_at("anemia", ~coalesce(.x, FALSE)) %>%
-    dmap_at("anemia", ~if_else(.x, "Anemia", "Non-Anemia")) %>%
-    select(millennium.id, anemia) %>%
-    mutate(val = TRUE) %>%
-    spread(anemia, val, fill = FALSE) %>%
-    select(-millennium.id) %>%
-    gather(variable, value) %>%
-    dmap_at("variable", fct_inorder) %>%
-    group_by(variable) %>%
-    summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
-    arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Patients with an indication of Other that is anemia-related among those without iron studies")
 ```
 
 # Transfusions
 
-```{r}
+```{r, fig.cap="Percent of patients receiving a transufsion of PRBC within 2 days prior to IV iron administration"}
 p <- data_iron %>%
-    mutate(transfused = !is.na(num_prbc)) %>%
-    dmap_at("transfused", ~if_else(.x, "Transfused", "Not Transfused", NA_character_)) %>%
-    dmap_at("transfused", fct_inorder) %>%
-    ggplot(aes(x = transfused)) +
-    geom_bar(width = 0.5) +
-    xlab("") +
-    ylab("Number of Patients") +
-    theme_bg(xticks = FALSE)
-
-ggplotly(p, dynamicTicks = TRUE)
-```
-
-```{r}
-data_iron %>%
     mutate(transfused = !is.na(num_prbc)) %>%
     dmap_at("transfused", ~if_else(.x, "Transfused", "Not Transfused", NA_character_)) %>%
     dmap_at("transfused", fct_inorder) %>%
@@ -355,28 +255,16 @@ data_iron %>%
     group_by(variable) %>%
     summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
     arrange(desc(n)) %>%
-    mutate(`%` = n / total * 100) %>%
-    select(variable, n, `%`, `n/a`) %>%
-    knitr::kable(digits = 2, caption = "Patients who receive a transfusion of PRBC")
-```
-
-```{r, fig.cap="Number of patients receiving a transfusion by iron indication"}
-p <- data_iron %>%
-    mutate(transfused = !is.na(num_prbc)) %>%
-    filter(transfused) %>%
-    inner_join(data_indications, by = "millennium.id") %>%
-    dmap_at("indication", fct_infreq) %>%
-    ggplot(aes(x = indication)) +
-    geom_bar() +
-    scale_x_discrete("Indication", labels = c("Other", "Bleed", "None Documented", "ESRD", "Transplant", "Jehovah's Witness")) +
-    ylab("Number of Patients") +
+    mutate(percent = n / total * 100) %>%
+    ggplot(aes(x = variable, y = percent)) +
+    geom_bar(stat = "identity", width = 0.5) +
+    xlab("") +
+    ylab("Number of Patients (%)") +
     theme_bg(xticks = FALSE)
 
 ggplotly(p, dynamicTicks = TRUE)
-
 ```
 
-Calculate % of patients in each group who received prbc
 ```{r}
 data_indications %>%
     left_join(data_iron, by = "millennium.id") %>%
