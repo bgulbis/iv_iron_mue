@@ -20,7 +20,7 @@ library(forcats)
 library(plotly)
 library(themebg)
 
-x <- dirr::get_rds_s3("iv-iron-mue", "data/tidy/")
+x <- dirr::get_rds("../data/tidy")
 ```
 
 # Indications
