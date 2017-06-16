@@ -20,31 +20,96 @@ library(stringr)
 library(forcats)
 library(plotly)
 library(themebg)
+library(grid)
+library(gridExtra)
+library(ReporteRs)
+library(tableone)
 
 x <- dirr::get_rds("../data/tidy")
 
-vizient_total <- read_excel("../data/external/vizient_totals_peer-hospitals_2016.xlsx", range = "C42:I66")
-vizient_service <- read_excel("../data/external/vizient_service-line_peer-hospitals_2016.xlsx", range = "B43:I637")
+hospitals <- c("340047 WFBH_NCBH" = "Wake Forest",
+               "100128 TAMPAGEN" = "Tampa General",
+               "050625 CEDARS-SINAI" = "Cedars Sinai",
+               "150056 IU_HEALTH-MEDICALCENTER" = "IU Health",
+               "360137 UHCLEVELAND" = "University Hosp (Cle)",
+               "450068 HERMANN" = "MH-TMC",
+               "100113 SHANDS_UF" = "Shands UF",
+               "450358 METHODIST_HOUSTON" = "Houston Methodist",
+               "390111 UPHS-HUP" = "Penn",
+               "230046 MICHIGAN" = "Michigan",
+               "330214 NYU" = "NYU",
+               "340030 DUHS-DUKEHOSPITAL" = "Duke Hospital",
+               "360180 CLEVELANDCLINIC" = "Cleveland Clinic",
+               "360085 OHIOSTATE" = "Ohio State",
+               "330101 NYPHS_NYPRESBYTERIAN" = "NY Presbyterian",
+               "260032  BJC_BARNESJEWISH" = "Barnes Jewish",
+               "210009 JHHS-HOPKINS" = "Johns Hopkins",
+               "340061 UNC_MEDICAL-CENTER" = "North Carolina",
+               "330024 MTSINAI" = "Mount Sinai",
+               "240080 MINNESOTA" = "Minnesota",
+               "010033 ALABAMA" = "Alabama",
+               "440039 VANDERBILT" = "Vanderbilt",
+               "390174 TJEFFERSON" = "Thomas Jefferson",
+               "240010 MAYOCLINIC_MN" = "Mayo Clinic")
+
+vizient_total <- read_excel("../data/external/vizient_totals_peer-hospitals_2016.xlsx", range = "C42:I66") %>%
+    mutate(Hospital_Name = str_replace_all(Hospital, hospitals))
+vizient_service <- read_excel("../data/external/vizient_service-line_peer-hospitals_2016.xlsx", range = "B43:I637") %>%
+    mutate(Hospital_Name = str_replace_all(Hospital, hospitals))
 ```
 
 # Vizient Comparison
 
 ```{r, fig.cap="Comparison of IV iron product utilization among similar Vizient institutions"}
-p <- vizient_total %>%
+avg <- mean(vizient_total$`Pct Clinical Population Numerator Cases`)
+
+fig_percent_cases <- vizient_total %>%
     rename(percent_cases = `Pct Clinical Population Numerator Cases`) %>%
     arrange(desc(percent_cases)) %>%
-    dmap_at("Hospital", fct_inorder) %>%
-    dmap_at("Hospital", fct_rev) %>%
-    mutate(mhtmc = str_detect(Hospital, "HERMANN")) %>%
-    ggplot(aes(x = Hospital, y = percent_cases, fill = mhtmc)) +
+    mutate_at("Hospital_Name", fct_inorder) %>%
+    mutate_at("Hospital_Name", fct_rev) %>%
+    mutate(mhtmc = str_detect(Hospital_Name, "MH-TMC")) %>%
+    ggplot(aes(x = Hospital_Name, y = percent_cases, fill = mhtmc)) +
     geom_bar(stat = "identity") +
-    ylab("Percent of Cases") +
-    scale_fill_manual("", values = c("grey50", "black")) +
+    geom_hline(yintercept = avg, color = "grey35") +
+    # annotate("text", x = "Mayo Clinic", y = avg + 0.65, label = "Mean Cases", color = "grey35") + 
+    xlab("") +
+    scale_y_continuous("Cases (%)", position = "right", breaks = seq(0, 7, 1)) +
+    scale_fill_manual("", values = c("grey65", "black")) +
     coord_flip() +
-    theme_bg() +
+    theme_bg(yticks = FALSE) +
     theme(legend.position = "none")
 
-ggplotly(p, dynamicTicks = TRUE)
+fig_percent_cases
+# ggsave("../figs/figure-1_percent-cases.pdf", device = "pdf", width = 170, height = 170, units = "mm")
+
+# ggplotly(fig_percent_cases, dynamicTicks = TRUE, width = 640, height = 640)
+```
+
+```{r, fig.cap="Comparison of length of IV iron therapy among similar Vizient institutions"}
+avg = mean(vizient_total$`Mean Days Resource Used/Case`)
+
+fig_duration_therapy <- vizient_total %>%
+    rename(duration = `Mean Days Resource Used/Case`) %>%
+    arrange(desc(duration)) %>%
+    mutate_at("Hospital_Name", fct_inorder) %>%
+    mutate_at("Hospital_Name", fct_rev) %>%
+    mutate(mhtmc = str_detect(Hospital_Name, "MH-TMC")) %>%
+    ggplot(aes(x = Hospital_Name, y = duration, fill = mhtmc)) +
+    geom_bar(stat = "identity") +
+    geom_hline(yintercept = avg, color = "grey35") +
+    # annotate("text", x = "NYU", y = avg + 0.65, label = "Mean Duration", color = "grey35") + 
+    xlab("") +
+    scale_y_continuous("Duration of Therapy (days)", position = "right", breaks = seq(0, 7, 1)) +
+    scale_fill_manual("", values = c("grey65", "black")) +
+    coord_flip() +
+    theme_bg(yticks = FALSE) +
+    theme(legend.position = "none")
+
+fig_duration_therapy
+# ggsave("../figs/figure-2_duration-therapy.pdf", device = "pdf", width = 170, height = 170, units = "mm")
+
+# ggplotly(fig_duration_therapy, dynamicTicks = TRUE, width = 640, height = 640)
 ```
 
 ```{r}
@@ -53,7 +118,7 @@ vizient_service %>%
            percent_cases = `Pct Clinical Population Numerator Cases`) %>%
     group_by(service_line) %>%
     top_n(5, percent_cases) %>%
-    mutate(mhtmc = str_detect(Hospital, "HERMANN")) %>%
+    mutate(mhtmc = str_detect(Hospital_Name, "MH-TMC")) %>%
     summarize_at("mhtmc", "sum") %>%
     summarize_at("mhtmc", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
     mutate(`%` = n / total * 100,
@@ -63,34 +128,37 @@ vizient_service %>%
 ```
 
 ```{r, fig.cap="Percent of cases receiving IV iron among Vizient service lines with MH-TMC in the top 5 for utilization"}
-vizient_service %>%
+fig_service_line <- vizient_service %>%
     rename(service_line = `Vizient Service Line`,
            percent_cases = `Pct Clinical Population Numerator Cases`) %>%
     group_by(service_line) %>%
     top_n(5, percent_cases) %>%
     ungroup() %>%
-    filter(str_detect(Hospital, "HERMANN")) %>%
+    filter(str_detect(Hospital_Name, "MH-TMC")) %>%
     arrange(desc(percent_cases)) %>%
-    dmap_at("service_line", fct_inorder) %>%
-    dmap_at("service_line", fct_rev) %>%
+    mutate_at("service_line", fct_inorder) %>%
+    mutate_at("service_line", fct_rev) %>%
     ggplot(aes(x = service_line, y = percent_cases)) +
     geom_bar(stat = "identity") +
-    xlab("Vizient Service Line") +
-    ylab("Percent of Cases") +
+    # xlab("Vizient Service Line") +
+    xlab("") +
+    scale_y_continuous("Cases (%)", position = "right") +
     coord_flip() +
-    theme_bg()
+    theme_bg(yticks = FALSE)
+
+fig_service_line
 ```
 
 # Indications
 
 ```{r, fig.cap="Indications for IV iron use"}
 x <- c("other" = "Other",
-       "none" = "None Documented",
+       "none" = "None",
        "esrd" = "ESRD",
        "transplant" = "Transplant",
        "jehovah" = "Jehovah's Witness")
 
-p <- data_indications %>%
+fig_indications <- data_indications %>%
     mutate(anemia = str_detect(comments, regex("anemia", ignore_case = TRUE))) %>%
     dmap_at("anemia", ~coalesce(.x, FALSE)) %>%
     mutate(new_indication = if_else(indication == "bleed" | (indication == "other" & anemia), "Bleed/Anemia", indication)) %>%
@@ -105,19 +173,46 @@ p <- data_indications %>%
     arrange(desc(n)) %>%
     mutate(percent = n / total * 100) %>%
     dmap_at("new_indication", fct_inorder) %>%
-    mutate(no_indication = new_indication == "None Documented") %>%
+    mutate(no_indication = new_indication == "None") %>%
     ggplot(aes(x = new_indication, y = percent, fill = no_indication)) +
     geom_bar(stat = "identity") +
     scale_x_discrete("Indication") +
-    ylab("Number of Patients (%)") +
-    scale_fill_manual("", values = c("grey50", "black")) +
+    scale_y_continuous("Number of Patients (%)", breaks = seq(0, 70, 10)) +
+    scale_fill_manual("", values = c("grey65", "black")) +
     theme_bg(xticks = FALSE) +
     theme(legend.position = "none")
 
-ggplotly(p, dynamicTicks = TRUE)
+fig_indications
+# ggplotly(p, dynamicTicks = TRUE)
 ```
 
 # Demographics
+
+```{r}
+x <- c("Home or Self Care" = "Home",
+       "Home Care with Home Health" = "Home",
+       "Skilled Nursing Facility" = "Transferred",
+       "DC/DISC TO REHAB" = "Transferred",
+       "Deceased" = "Death/Hospice",
+       "Left Against Medical Advise" = "Home",
+       "Long Term Care" = "Transferred",
+       "Acute Care" = "Transferred",
+       "Hospice-Home" = "Death/Hospice")
+
+df <- data_patients %>%
+    dmap_at("disposition", str_replace_all, pattern = x) %>%
+     select(Age = age,
+           `Length of Stay` = length.stay,
+           Gender = gender,
+           Race = race,
+           Disposition = disposition) 
+
+tbl <- CreateTableOne(data = df)
+ptbl <- print(tbl, printToggle = FALSE)
+# ptbl
+knitr::kable(ptbl, digits = 1, caption = "Demographics")
+```
+
 
 ```{r}
 data_patients %>%
@@ -193,7 +288,7 @@ data_patients %>%
 # Labs
 
 ```{r, fig.cap="Percent of patients with an iron study any time prior to IV iron administration"}
-p <- data_labs %>%
+fig_labs_iron <- data_labs %>%
     select(millennium.id, lab_baseline_iron) %>%
     dmap_at("lab_baseline_iron", ~!is.na(.x)) %>%
     dmap_at("lab_baseline_iron", ~if_else(.x, "Iron Study", "No Iron Study")) %>%
@@ -212,7 +307,27 @@ p <- data_labs %>%
     ylab("Number of Patients (%)") +
     theme_bg(xticks = FALSE)
 
-ggplotly(p, dynamicTicks = TRUE)
+fig_labs_iron
+# ggplotly(p, dynamicTicks = TRUE)
+```
+
+% of patients with labs that are not iron deficient (and how do we define this - serum iron vs. ferritin)
+
+```{r}
+data_labs %>%
+    mutate(ferritin = if_else(!is.na(lab_baseline_ferritin), lab_baseline_ferritin, lab_admit_ferritin),
+           tsat = if_else(!is.na(lab_baseline_transferrin_sat), lab_baseline_transferrin_sat, lab_admit_transferrin_sat),
+           low_ferritin = ferritin < 150,
+           low_tsat = tsat <20,
+           low_labs = low_ferritin & low_tsat) %>%
+    select(millennium.id, `Low Ferritin` = low_ferritin, `Low Transferrin Saturation` = low_tsat, `Both Low` = low_labs) %>%
+    gather(variable, value, -millennium.id) %>%
+    group_by(variable) %>%
+    summarize_at("value", funs(n = sum(.), total = sum(!is.na(.)), `n/a` = sum(is.na(.))), na.rm = TRUE) %>%
+    mutate(`%` = n / total * 100) %>%
+    arrange(desc(`%`)) %>%
+    select(variable, n, `%`, `n/a`) %>%
+    knitr::kable(digits = 2, caption = "Labs appropriate for iron supplementation")
 ```
 
 ## Hemoglobin drop
@@ -391,5 +506,30 @@ data_safety %>%
     mutate(`%` = n / total * 100) %>%
     select(variable, n, `%`, `n/a`) %>%
     knitr::kable(digits = 2, caption = "Rash and Anaphylaxis")
+```
+
+```{r reporters}
+figs_vizient <- arrangeGrob(fig_percent_cases, fig_duration_therapy, ncol = 2)
+
+docx() %>%
+    addPlot(fun = grid.draw,
+            x = figs_vizient,
+            width = 7,
+            height = 3.5,
+            vector.graphic = TRUE,
+            fontname_sans = "Calibri") %>%
+        addPlot(fun = print,
+            x = fig_service_line,
+            width = 4,
+            height = 3.5,
+            vector.graphic = TRUE,
+            fontname_sans = "Calibri") %>%
+        addPlot(fun = print,
+            x = fig_indications,
+            width = 5.5,
+            height = 3.5,
+            vector.graphic = TRUE,
+            fontname_sans = "Calibri") %>%
+    writeDoc("../doc/figures_pt_summary.docx")
 ```
 
